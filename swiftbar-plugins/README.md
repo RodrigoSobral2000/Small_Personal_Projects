@@ -5,24 +5,23 @@ A collection of [SwiftBar](https://swiftbar.app/) plugins for managing SSH conne
 ## Projects
 
 ### 1. CERN SSH Proxy
-A plugin for managing SSH connections to CERN infrastructure with automatic SOCKS proxy configuration.
+A plugin for managing an SSH SOCKS tunnel to CERN infrastructure.
 
 **What it does:**
-- Displays the status of SSH tunnel and SOCKS proxy connections to a CERN host
-- Provides menu options to connect/disconnect SSH tunnel and enable/disable proxy
-- Retrieves SSH credentials from Bitwarden for secure authentication
-- Automatically manages macOS Wi-Fi SOCKS proxy settings
-- Uses `autossh` to maintain stable SSH connections with automatic reconnection
+- Displays the status of the SSH tunnel and the macOS SOCKS proxy
+- Provides menu options to connect/disconnect the tunnel and enable/disable the proxy
+- Authenticates with your existing SSH key (no password or 2FA prompt required)
+- Runs the tunnel as a managed background `ssh` process (ControlMaster socket), so it survives after the menu closes
+- Automatically manages the macOS SOCKS proxy for the configured network service
 
 **Status Indicators:**
 - Main icon: 🟢 (both SSH and Proxy enabled) or 🔴 (at least one is disabled)
-- SSH status: 👍🏻 (connected via socket tunnel) or 👎🏿 (disconnected)
+- SSH status: 👍🏻 (tunnel running) or 👎🏿 (disconnected)
 - Proxy status: 👍🏻 (proxy enabled) or 👎🏿 (proxy disabled)
 
 **Dependencies:**
 - bash
 - ssh
-- [bw (Bitwarden CLI)](https://bitwarden.com/download/)
 
 ---
 
@@ -45,18 +44,16 @@ A simple plugin for managing SSH connections to a Raspberry Pi or other remote h
 
 ### Environment Setup
 
-Both plugins require environment variables to be configured. Create `.env` files in the appropriate script directories by copying the `.env.example` template.
+Both plugins read environment variables from a `.env` file in their script directory. Copy the `.env.example` template and edit it.
 
 #### `.env.example` Template
 
 ```bash
 # scripts/cern/.env
 
-PROXY_PORT=          # Port number for SOCKS proxy (e.g., 9999)
-SSH_HOST=            # CERN hostname (e.g., lxplus.cern.ch)
-BW_CERN_ID=          # Bitwarden item ID for CERN credentials
-BW_CLIENTID=         # Bitwarden Client ID for API key authentication
-BW_CLIENTSECRET=     # Bitwarden Client Secret for API key authentication
+PROXY_PORT=          # Local port for the SOCKS proxy (e.g., 6789)
+SSH_HOST=            # SSH host for the tunnel (e.g., lxtunnel)
+NETWORK_SERVICE=     # macOS network service to configure (e.g., Wi-Fi)
 
 # scripts/raspi/.env
 
@@ -77,20 +74,18 @@ SSH_HOST=            # Raspberry Pi hostname or IP address
    ```
 
 2. **Edit the `.env` files with your configuration:**
-   - For **CERN**: Set your CERN credentials, desired proxy port, and Bitwarden email
-   - For **RaspberryPi**: Set your SSH key path, username, and host address
+   - For **CERN**: set the proxy port, SSH host, and network service name
+   - For **RaspberryPi**: set the SSH key path, username, and host address
 
-3. **Ensure SSH keys have correct permissions:**
+3. **Ensure your SSH key is authorized for the CERN host:**
+   The CERN plugin logs in with your SSH key, so no password or 2FA prompt is
+   needed. Confirm it works non-interactively:
    ```bash
-   chmod 600 ~/.ssh/id_rsa  # Or your SSH key path
+   ssh -o BatchMode=yes lxtunnel 'echo ok'
    ```
+   If this fails, add your public key to the host (or use `ssh-copy-id`).
 
-4. **Install Bitwarden CLI (CERN plugin only):**
-   ```bash
-   brew install bitwarden-cli
-   ```
-
-5. **Add plugins to SwiftBar:**
+4. **Add plugins to SwiftBar:**
    - Open SwiftBar
    - Click the SwiftBar icon → "Open Plugins Folder"
    - Copy `cern.1s.sh` and/or `raspi.1s.sh` to the plugins folder
@@ -104,38 +99,30 @@ SSH_HOST=            # Raspberry Pi hostname or IP address
 
 **On First Launch:**
 - Menu bar shows 🔴 CERN (disconnected)
-- Dropdown menu displays:
-  - `SSH: 👎🏿 Proxy: 👎🏿` (status indicators)
-  - `Connect All` button (connects SSH tunnel and enables proxy)
+- Dropdown menu displays `SSH: 👎🏿 Proxy: 👎🏿` and a `Connect All` button
 
 **After Connecting:**
 - Menu bar shows 🟢 CERN (fully connected)
-- SOCKS proxy is automatically enabled on macOS Wi-Fi
-- SSH tunnel established with automatic reconnection via autossh
-- Dropdown menu now displays:
-  - `SSH: 👍🏻 Proxy: 👍🏻` (both connected)
-  - `Disconnect All` button
-  - `Disconnect Socket` button
+- SOCKS proxy is automatically enabled on the configured network service
+- The SSH tunnel runs in the background via a ControlMaster socket
+- Dropdown menu now displays `SSH: 👍🏻 Proxy: 👍🏻`, `Disconnect All`, and proxy toggle options
 
-**Bitwarden Integration:**
-- On first connection, you'll be prompted to enter your Bitwarden master password
-- SSH password is securely retrieved from Bitwarden (stored entry: `login.cern.ch`)
-- Session token is cached in `~/.bw_session` for subsequent operations
+**How the tunnel is managed:**
+- The tunnel is a background `ssh -N -D <port>` process with its own ControlMaster socket at `~/.ssh/cern-proxy.sock`
+- Status is checked with `ssh -S <socket> -O check`
+- Disconnect is done with `ssh -S <socket> -O exit`, then the proxy is turned off
+- `ServerAliveInterval`/`ServerAliveCountMax` keep the connection healthy
 
 ### RaspberryPi SSH Connector Plugin
 
 **On First Launch:**
 - Menu bar shows 🔴 RASPI (disconnected)
-- Dropdown menu displays:
-  - `Status: Disconnected`
-  - `Connect` button (opens terminal with SSH session)
+- Dropdown menu displays `Status: Disconnected` and a `Connect` button (opens a terminal with the SSH session)
 
 **After Connecting:**
 - Menu bar shows 🟢 RASPI (connected)
 - Terminal window opens with active SSH session
-- Dropdown menu now displays:
-  - `Status: Connected`
-  - `Disconnect` button (kills the SSH process)
+- Dropdown menu now displays `Status: Connected` and a `Disconnect` button
 
 **Auto-refresh:**
 - Plugin updates every 1 second (`1s` in filename)
@@ -146,12 +133,12 @@ SSH_HOST=            # Raspberry Pi hostname or IP address
 ## Usage
 
 ### CERN Plugin
-- **Connect**: Click "Connect All" to establish both SSH tunnel and proxy
-- **Disconnect**: Click "Disconnect All" or "Disconnect Socket" as needed
-- **Toggle Proxy**: Use "Connect Proxy" / "Disconnect Proxy" to manage proxy independently
+- **Connect**: Click "Connect All" to establish the SSH tunnel and enable the proxy
+- **Disconnect**: Click "Disconnect All" to stop the tunnel and disable the proxy
+- **Toggle Proxy**: Use "Connect Proxy" / "Disconnect Proxy" to manage the proxy independently
 
 ### RaspberryPi Plugin
-- **Connect**: Click "Connect" to open SSH terminal session
+- **Connect**: Click "Connect" to open an SSH terminal session
 - **Disconnect**: Click "Disconnect" to close the connection
 
 ---
@@ -159,18 +146,20 @@ SSH_HOST=            # Raspberry Pi hostname or IP address
 ## Troubleshooting
 
 ### "Error: .env file not found"
-- Ensure `.env` file exists in the correct script directory
-- Check file permissions: `ls -la scripts/raspi/.env`
+- Ensure `.env` exists in the correct script directory
+- Check file permissions: `ls -la scripts/cern/.env`
 
 ### SSH Connection Fails
-- Verify SSH key path is correct and accessible
-- Check host is reachable: `ping <SSH_HOST>`
-- Ensure SSH key has correct permissions: `chmod 600 ~/.ssh/your_key`
+- Verify the host is reachable: `ssh -o BatchMode=yes <SSH_HOST> 'echo ok'`
+- Ensure your SSH key is authorized on the host and has correct permissions: `chmod 600 ~/.ssh/<your_key>`
+- Review the plugin log: `tail -20 ~/.cern-proxy.log`
 
-### Bitwarden Authentication (CERN)
-- Ensure Bitwarden CLI is installed: `which bw`
-- Verify your Bitwarden account email in `.env`
-- Ensure login entry exists in Bitwarden with name `login.cern.ch`
+### Tunnel won't start ("Address already in use")
+- Something is already listening on `PROXY_PORT`. Find it with `lsof -nP -iTCP:<PROXY_PORT> -sTCP:LISTEN`
+- A stale socket can also block startup; remove it with `rm -f ~/.ssh/cern-proxy.sock` and click "Connect All" again
+
+### Proxy stays enabled after a crash
+- Click "Disconnect Proxy", or run `networksetup -setsocksfirewallproxystate "<NETWORK_SERVICE>" off`
 
 ---
 
@@ -187,11 +176,10 @@ SwiftBarPlugins/
     ├── source_env.sh                  # Shared environment loader
     ├── cern/
     │   ├── .env                       # CERN configuration
-    │   ├── connect.sh                 # SSH tunnel + proxy setup
-    │   ├── disconnect.sh              # SSH tunnel + proxy teardown
+    │   ├── connect.sh                 # Start the SSH tunnel + enable proxy
+    │   ├── disconnect.sh              # Stop the SSH tunnel + disable proxy
     │   ├── enableproxy.sh             # macOS proxy enable
-    │   ├── disableproxy.sh            # macOS proxy disable
-    │   └── autossh.sh                 # Secure SSH wrapper
+    │   └── disableproxy.sh            # macOS proxy disable
     └── raspi/
         ├── .env                       # RaspberryPi configuration
         ├── connect.sh                 # SSH connection script

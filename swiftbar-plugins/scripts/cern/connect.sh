@@ -1,47 +1,63 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-read -r ENABLE_PROXY_SCRIPT AUTOSSH_SCRIPT PROXY_PORT SSH_HOST BW_CERN_ID_VAL BW_CLIENTID_VAL BW_CLIENTSECRET_VAL SSH_CONN_PIDS <<< "$1 $2 $3 $4 $5 $6 $7 $8"
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
 
-export BW_CERN_ID="$BW_CERN_ID_VAL"
-export BW_CLIENTID="$BW_CLIENTID_VAL"
-export BW_CLIENTSECRET="$BW_CLIENTSECRET_VAL"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN=cern source "$SCRIPT_DIR/../source_env.sh"
 
-# 1. Handle Bitwarden Authentication via API Key
-if ! bw login --check >/dev/null 2>&1; then
-    bw login --apikey >/dev/null
-fi
+CONTROL_SOCKET="${CONTROL_SOCKET:-$HOME/.ssh/cern-proxy.sock}"
+LOG_FILE="${LOG_FILE:-$HOME/.cern-proxy.log}"
 
-# 2. Handle Vault Unlock & Session Management
-_unlock_vault() {
-    export BW_SESSION="$(bw unlock --raw)"
-    echo "$BW_SESSION" > "$HOME/.bw_session"
-    chmod 600 "$HOME/.bw_session"
-    echo "Vault unlocked and session saved"
+log() {
+    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE" 2>/dev/null || true
 }
 
-# Load existing session from file if BW_SESSION isn't already set
-if [ -z "$BW_SESSION" ] && [ -f "$HOME/.bw_session" ]; then
-    export BW_SESSION="$(cat "$HOME/.bw_session")"
+notify() {
+    osascript -e "display notification \"$1\" with title \"CERN Proxy\"" >/dev/null 2>&1 || true
+}
+
+fail() {
+    log "ERROR: $*"
+    notify "$*"
+    echo "Error: $*" >&2
+    exit 1
+}
+
+mkdir -p "$(dirname "$CONTROL_SOCKET")"
+
+# Already connected: just make sure the proxy points at the running tunnel
+if ssh -S "$CONTROL_SOCKET" -O check "$SSH_HOST" >/dev/null 2>&1; then
+    log "Tunnel already running"
+    "$SCRIPT_DIR/enableproxy.sh"
+    exit 0
 fi
 
-# Validate session with a lightweight, non-interactive call
-# `bw list folders` is fast and never prompts — it just fails with exit code 1 if session is invalid
-if ! bw list folders --session "$BW_SESSION" >/dev/null 2>&1; then
-    _unlock_vault
+# Remove a stale socket left behind by a crashed master
+rm -f "$CONTROL_SOCKET"
+
+log "Starting tunnel to $SSH_HOST (SOCKS 127.0.0.1:$PROXY_PORT)"
+if ! ssh -M -S "$CONTROL_SOCKET" -f -N -D "$PROXY_PORT" \
+    -o ControlMaster=yes -o ControlPersist=no \
+    -o ExitOnForwardFailure=yes \
+    -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes \
+    -o ConnectTimeout=15 -o LogLevel=ERROR \
+    "$SSH_HOST" >>"$LOG_FILE" 2>&1; then
+    rm -f "$CONTROL_SOCKET"
+    fail "Failed to start SSH tunnel to $SSH_HOST (see $LOG_FILE)"
 fi
 
-# Now sync with the confirmed-valid session
-bw sync --session "$BW_SESSION" >/dev/null
+# Confirm the master (and therefore the SOCKS forward) is up
+for _ in 1 2 3 4 5; do
+    if ssh -S "$CONTROL_SOCKET" -O check "$SSH_HOST" >/dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
 
-# 3. Retrieve Credentials
-ssh_pass=$(bw get password "$BW_CERN_ID" --session "$BW_SESSION" | base64)
-ssh_totp=$(bw get totp "$BW_CERN_ID" --session "$BW_SESSION" | base64)
-
-# 4. Network and Proxy Setup
-$ENABLE_PROXY_SCRIPT $PROXY_PORT
-
-# 5. SSH into the machine
-if [ -z "$SSH_CONN_PIDS" ]; then
-    $AUTOSSH_SCRIPT "$ssh_pass" "$ssh_totp" ssh -D "$PROXY_PORT" "$SSH_HOST"
+if ! ssh -S "$CONTROL_SOCKET" -O check "$SSH_HOST" >/dev/null 2>&1; then
+    fail "SSH tunnel did not come up (see $LOG_FILE)"
 fi
+
+"$SCRIPT_DIR/enableproxy.sh"
+log "Connected; proxy enabled on $NETWORK_SERVICE:$PROXY_PORT"

@@ -1,10 +1,10 @@
 #!/bin/bash
+set -euo pipefail
 
-PROXY_PORT=$1
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
 
-# Enable SOCKS proxy
-networksetup -setsocksfirewallproxy "Wi-Fi" "127.0.0.1" "$PROXY_PORT"
-networksetup -setsocksfirewallproxystate "Wi-Fi" on
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN=cern source "$SCRIPT_DIR/../source_env.sh"
 
-# Disable proxy on interruption
-trap 'networksetup -setsocksfirewallproxystate "Wi-Fi" off; exit' INT TERM
+networksetup -setsocksfirewallproxy "$NETWORK_SERVICE" 127.0.0.1 "$PROXY_PORT"
+networksetup -setsocksfirewallproxystate "$NETWORK_SERVICE" on

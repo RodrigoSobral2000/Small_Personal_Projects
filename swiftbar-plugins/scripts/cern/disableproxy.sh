@@ -1,4 +1,9 @@
 #!/bin/bash
+set -euo pipefail
 
-# Disable the SOCKS proxy
-networksetup -setsocksfirewallproxystate "Wi-Fi" off
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN=cern source "$SCRIPT_DIR/../source_env.sh"
+
+networksetup -setsocksfirewallproxystate "$NETWORK_SERVICE" off

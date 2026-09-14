@@ -14,15 +14,15 @@ fi
 # Load environment variables
 source "$PLUGIN_PATH/.env"
 
-if [ $PLUGIN == "raspi" ]; then
+if [ "$PLUGIN" == "raspi" ]; then
     required_vars=("SSH_USER" "SSH_HOST" "SSH_KEY_PATH")
-elif [ $PLUGIN == "cern" ]; then
-    required_vars=("SSH_HOST" "PROXY_PORT" "BW_CERN_ID" "BW_CLIENTID" "BW_CLIENTSECRET")
+elif [ "$PLUGIN" == "cern" ]; then
+    required_vars=("SSH_HOST" "PROXY_PORT" "NETWORK_SERVICE")
 fi
 
 # Validate required variables
 for var in "${required_vars[@]}"; do
-    if [ -z "${!var}" ]; then
+    if [ -z "${!var:-}" ]; then
         echo "Error: $var is not set in .env."
         exit 1
     fi

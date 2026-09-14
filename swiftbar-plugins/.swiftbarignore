@@ -1,3 +1,10 @@
+# Exclude helper scripts from being imported as standalone SwiftBar plugins.
+#
+# SwiftBar's glob does not let `*` cross `/` (and `**` is not honored), so each
+# depth has to be listed explicitly. `scripts/*` covers files directly in
+# scripts/, `scripts/*/*` covers files in scripts/<plugin>/.
 scripts/*
+scripts/*/*
 .env.example
 README.md
+.DS_Store
