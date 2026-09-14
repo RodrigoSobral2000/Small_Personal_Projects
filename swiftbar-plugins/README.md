@@ -1,187 +1,103 @@
 # SwiftBar Custom Plugins
 
-A collection of [SwiftBar](https://swiftbar.app/) plugins for managing SSH connections and network configurations. These plugins provide a convenient menu bar interface to control SSH tunnels and proxy settings from macOS.
+Two [SwiftBar](https://swiftbar.app/) menu bar plugins for SSH and proxy management on macOS.
 
-## Projects
+| Plugin | Purpose |
+| --- | --- |
+| `cern.1s.sh` | Starts an SSH SOCKS tunnel to a CERN host and routes macOS traffic through it |
+| `raspi.1s.sh` | Opens/closes an interactive SSH session to a Raspberry Pi |
 
-### 1. CERN SSH Proxy
-A plugin for managing an SSH SOCKS tunnel to CERN infrastructure.
-
-**What it does:**
-- Displays the status of the SSH tunnel and the macOS SOCKS proxy
-- Provides menu options to connect/disconnect the tunnel and enable/disable the proxy
-- Authenticates with your existing SSH key (no password or 2FA prompt required)
-- Runs the tunnel as a managed background `ssh` process (ControlMaster socket), so it survives after the menu closes
-- Automatically manages the macOS SOCKS proxy for the configured network service
-
-**Status Indicators:**
-- Main icon: 🟢 (both SSH and Proxy enabled) or 🔴 (at least one is disabled)
-- SSH status: 👍🏻 (tunnel running) or 👎🏿 (disconnected)
-- Proxy status: 👍🏻 (proxy enabled) or 👎🏿 (proxy disabled)
-
-**Dependencies:**
-- bash
-- ssh
+Both refresh every second (`.1s.` in the filename) and authenticate with your existing SSH keys.
 
 ---
 
-### 2. RaspberryPi SSH Connector
-A simple plugin for managing SSH connections to a Raspberry Pi or other remote host.
+## CERN SSH Proxy
 
-**What it does:**
-- Displays connection status to a remote SSH host (Raspberry Pi)
-- Provides menu options to quickly connect/disconnect via SSH
-- Uses SSH key-based authentication for secure access
-- Shows connection status: 🟢 (connected) or 🔴 (disconnected)
+**What it does**
+- Opens a background SOCKS tunnel with `ssh -N -D`, using your SSH key (no password or 2FA prompt).
+- Enables/disables the macOS SOCKS proxy for the configured network service.
+- Menu bar shows 🟢 when both the tunnel and proxy are up, 🔴 otherwise.
+- Menu: `Connect All`, `Disconnect All`, and a proxy-only toggle.
 
-**Dependencies:**
-- bash
-- ssh
-
----
-
-## Configuration
-
-### Environment Setup
-
-Both plugins read environment variables from a `.env` file in their script directory. Copy the `.env.example` template and edit it.
-
-#### `.env.example` Template
+**Configuration** — `scripts/cern/.env`
 
 ```bash
-# scripts/cern/.env
-
-PROXY_PORT=          # Local port for the SOCKS proxy (e.g., 6789)
-SSH_HOST=            # SSH host for the tunnel (e.g., lxtunnel)
-NETWORK_SERVICE=     # macOS network service to configure (e.g., Wi-Fi)
-
-# scripts/raspi/.env
-
-SSH_KEY_PATH=        # Full path to SSH private key (e.g., ~/.ssh/id_rsa)
-SSH_USER=            # SSH username for Raspberry Pi
-SSH_HOST=            # Raspberry Pi hostname or IP address
+PROXY_PORT=6789        # local SOCKS port
+SSH_HOST=lxtunnel      # SSH host (resolved via ~/.ssh/config)
+NETWORK_SERVICE=Wi-Fi  # macOS network service to configure
 ```
 
-### Setup Instructions
+**Notes**
+- Run `ssh -o BatchMode=yes "$SSH_HOST" 'echo ok'` first to confirm key-based auth works.
+- The tunnel is managed through a ControlMaster socket at `~/.ssh/cern-proxy.sock`; status is checked with `ssh -O check` and closed with `ssh -O exit`.
+- Actions are logged to `~/.cern-proxy.log`; errors also raise a notification.
 
-1. **Create environment files:**
+---
+
+## RaspberryPi SSH Connector
+
+**What it does**
+- Shows 🟢/🔴 depending on whether an `ssh` session to the host is running.
+- `Connect` opens an interactive SSH session in Terminal; `Disconnect` closes it.
+
+**Configuration** — `scripts/raspi/.env`
+
+```bash
+SSH_KEY_PATH=$HOME/.ssh/id_ed25519_raspi  # private key for the host
+SSH_USER=raspi                            # login user
+SSH_HOST=raspi                            # hostname or IP
+```
+
+---
+
+## Setup
+
+1. **Create the config files** (one per plugin):
+
    ```bash
-   # For CERN plugin
    cp .env.example scripts/cern/.env
-
-   # For RaspberryPi plugin
    cp .env.example scripts/raspi/.env
    ```
 
-2. **Edit the `.env` files with your configuration:**
-   - For **CERN**: set the proxy port, SSH host, and network service name
-   - For **RaspberryPi**: set the SSH key path, username, and host address
+   Edit each file for the plugin you use.
 
-3. **Ensure your SSH key is authorized for the CERN host:**
-   The CERN plugin logs in with your SSH key, so no password or 2FA prompt is
-   needed. Confirm it works non-interactively:
+2. **Secure your SSH keys:**
+
    ```bash
-   ssh -o BatchMode=yes lxtunnel 'echo ok'
+   chmod 600 ~/.ssh/<your_key>
    ```
-   If this fails, add your public key to the host (or use `ssh-copy-id`).
 
-4. **Add plugins to SwiftBar:**
-   - Open SwiftBar
-   - Click the SwiftBar icon → "Open Plugins Folder"
-   - Copy `cern.1s.sh` and/or `raspi.1s.sh` to the plugins folder
-   - Refresh SwiftBar (SwiftBar menu → "Refresh")
+3. **Point SwiftBar at this folder:** SwiftBar menu → *Open Plugins Folder* → select `swiftbar-plugins`, then refresh.
+
+**Requirements:** `bash`, `ssh`. No other tools are needed.
 
 ---
 
-## Expected Results
+## Don't break the helper scripts
 
-### CERN SSH Proxy Plugin
-
-**On First Launch:**
-- Menu bar shows 🔴 CERN (disconnected)
-- Dropdown menu displays `SSH: 👎🏿 Proxy: 👎🏿` and a `Connect All` button
-
-**After Connecting:**
-- Menu bar shows 🟢 CERN (fully connected)
-- SOCKS proxy is automatically enabled on the configured network service
-- The SSH tunnel runs in the background via a ControlMaster socket
-- Dropdown menu now displays `SSH: 👍🏻 Proxy: 👍🏻`, `Disconnect All`, and proxy toggle options
-
-**How the tunnel is managed:**
-- The tunnel is a background `ssh -N -D <port>` process with its own ControlMaster socket at `~/.ssh/cern-proxy.sock`
-- Status is checked with `ssh -S <socket> -O check`
-- Disconnect is done with `ssh -S <socket> -O exit`, then the proxy is turned off
-- `ServerAliveInterval`/`ServerAliveCountMax` keep the connection healthy
-
-### RaspberryPi SSH Connector Plugin
-
-**On First Launch:**
-- Menu bar shows 🔴 RASPI (disconnected)
-- Dropdown menu displays `Status: Disconnected` and a `Connect` button (opens a terminal with the SSH session)
-
-**After Connecting:**
-- Menu bar shows 🟢 RASPI (connected)
-- Terminal window opens with active SSH session
-- Dropdown menu now displays `Status: Connected` and a `Disconnect` button
-
-**Auto-refresh:**
-- Plugin updates every 1 second (`1s` in filename)
-- Status automatically reflects current connection state
-
----
-
-## Usage
-
-### CERN Plugin
-- **Connect**: Click "Connect All" to establish the SSH tunnel and enable the proxy
-- **Disconnect**: Click "Disconnect All" to stop the tunnel and disable the proxy
-- **Toggle Proxy**: Use "Connect Proxy" / "Disconnect Proxy" to manage the proxy independently
-
-### RaspberryPi Plugin
-- **Connect**: Click "Connect" to open an SSH terminal session
-- **Disconnect**: Click "Disconnect" to close the connection
+`.swiftbarignore` excludes `scripts/*` and `scripts/*/*` so SwiftBar does **not** import the helper scripts (`connect.sh`, `enableproxy.sh`, ...) as plugins. If you add helper scripts at a deeper path, add a matching entry — SwiftBar's `*` does not cross `/` and `**` is not honored. Files at the top level (`*.1s.sh`) are the actual plugins.
 
 ---
 
 ## Troubleshooting
 
-### "Error: .env file not found"
-- Ensure `.env` exists in the correct script directory
-- Check file permissions: `ls -la scripts/cern/.env`
-
-### SSH Connection Fails
-- Verify the host is reachable: `ssh -o BatchMode=yes <SSH_HOST> 'echo ok'`
-- Ensure your SSH key is authorized on the host and has correct permissions: `chmod 600 ~/.ssh/<your_key>`
-- Review the plugin log: `tail -20 ~/.cern-proxy.log`
-
-### Tunnel won't start ("Address already in use")
-- Something is already listening on `PROXY_PORT`. Find it with `lsof -nP -iTCP:<PROXY_PORT> -sTCP:LISTEN`
-- A stale socket can also block startup; remove it with `rm -f ~/.ssh/cern-proxy.sock` and click "Connect All" again
-
-### Proxy stays enabled after a crash
-- Click "Disconnect Proxy", or run `networksetup -setsocksfirewallproxystate "<NETWORK_SERVICE>" off`
+- **CERN tunnel won't start / port busy:** `lsof -nP -iTCP:6789 -sTCP:LISTEN`; remove a stale socket with `rm -f ~/.ssh/cern-proxy.sock`.
+- **Proxy left on after a crash:** click `Disconnect Proxy`, or `networksetup -setsocksfirewallproxystate "Wi-Fi" off`.
+- **SSH fails:** verify reachability and key permissions (see Setup), then check `~/.cern-proxy.log`.
+- **"Error: ... is not set in .env":** copy `.env.example` and fill in the missing value.
 
 ---
 
 ## File Structure
 
 ```
-SwiftBarPlugins/
-├── README.md                          # This file
-├── .env.example                       # Environment template
-├── .swiftbarignore                    # SwiftBar ignore rules
-├── cern.1s.sh                         # CERN plugin (refreshes every 1 second)
-├── raspi.1s.sh                        # RaspberryPi plugin (refreshes every 1 second)
+swiftbar-plugins/
+├── cern.1s.sh              # CERN plugin
+├── raspi.1s.sh             # RaspberryPi plugin
+├── .env.example            # Template for the per-plugin .env files
+├── .swiftbarignore         # Keeps helper scripts from loading as plugins
 └── scripts/
-    ├── source_env.sh                  # Shared environment loader
-    ├── cern/
-    │   ├── .env                       # CERN configuration
-    │   ├── connect.sh                 # Start the SSH tunnel + enable proxy
-    │   ├── disconnect.sh              # Stop the SSH tunnel + disable proxy
-    │   ├── enableproxy.sh             # macOS proxy enable
-    │   └── disableproxy.sh            # macOS proxy disable
-    └── raspi/
-        ├── .env                       # RaspberryPi configuration
-        ├── connect.sh                 # SSH connection script
-        └── disconnect.sh              # SSH disconnection script
+    ├── source_env.sh       # Loads and validates a plugin's .env
+    ├── cern/               # connect/disconnect + proxy enable/disable
+    └── raspi/              # connect/disconnect
 ```
